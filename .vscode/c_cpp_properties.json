@@ -1,0 +1,60 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/**",
+                    "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/cores/arduino",
+                    "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include",
+                    "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/standard"
+                ]
+            },
+            "includePath": [
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/cores/arduino",
+                "/Users/wmartins/Library/Arduino15/packages/esp8266/tools/**",
+                "/Users/wmartins/Library/Arduino15/packages/esp8266/hardware/esp8266/2.4.2/**",
+                "/Users/wmartins/Documents/Arduino/libraries/WiFiManager",
+                "/Applications/Arduino.app/Contents/Java/hardware/esp8266com/esp8266/libraries/ESP8266WiFi/src",
+                "/Applications/Arduino.app/Contents/Java/hardware/esp8266com/esp8266/libraries/Ticker",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include"
+            ],
+            "defines": [],
+            "macFrameworkPath": [
+                "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.14.sdk/System/Library/Frameworks"
+            ],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "clang-x64",
+            "forcedInclude": []
+        },
+        {
+            "name": "Linux",
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "clang-x64",
+            "browse": {
+                "path": [
+                    "/home/walter/Arduino/libraries/ArduinoJson",
+                    "/home/walter/Arduino/libraries/CircuitClient",
+                    "/opt/arduino-1.8.9/hardware/arduino/avr/cores/arduino",
+                    "/opt/arduino-1.8.9/hardware/esp8266com/esp8266/libraries/ESP8266HTTPClient",
+                    "/opt/arduino-1.8.9/hardware/esp8266com/esp8266/libraries/ESP8266WebServer",
+                    "/home/walter/Arduino/libraries/WiFiManager",
+                    "/opt/arduino-1.8.9/hardware/esp8266com/esp8266/libraries/Ticker",
+                    "/home/walter/Arduino/libraries/Adafruit_Unified_Sensor",
+                    "/home/walter/Arduino/libraries/DHT_sensor_library",
+                    "/home/walter/Arduino/libraries/Arduino-LiquidCrystal-I2C-library"
+                ]
+            },
+            "includePath": [
+                "/home/walter/.arduino15/packages/esp8266/tools/**",
+                "/home/walter/.arduino15/packages/esp8266/hardware/esp8266/2.5.0/**"
+            ]
+        }
+    ],
+    "version": 4
+}
