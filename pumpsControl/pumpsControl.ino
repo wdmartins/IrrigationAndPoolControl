@@ -47,15 +47,20 @@ public:
   static const int MAX_MINUTES_TICKER = 60;
 
   LongTicker();
+  LongTicker(std::string tickerName);
   ~LongTicker();
     
   void once(int minutes, Ticker::callback_t cb);
   int totalMinutesLeft;
   Ticker::callback_t cb;
   Ticker ticker;
+  void showStatus(const char *functionName);
+private:
+  std::string tickerName;
 };
 
 void repeat(LongTicker *myTicker) {
+  myTicker->showStatus("Begin repeat");
   int tickerMinutes = std::min(myTicker->totalMinutesLeft, LongTicker::MAX_MINUTES_TICKER);
   if (tickerMinutes <= 0) {
     myTicker->cb();
@@ -63,37 +68,56 @@ void repeat(LongTicker *myTicker) {
     if (myTicker->totalMinutesLeft > LongTicker::MAX_MINUTES_TICKER) {
       myTicker->totalMinutesLeft -= tickerMinutes;
       myTicker->ticker.once(LongTicker::MAX_MINUTES_TICKER * 60, repeat, myTicker);
+      myTicker->showStatus("End repeat");
       return;
     }
     myTicker->ticker.once(myTicker->totalMinutesLeft * 60, myTicker->cb);
     myTicker->totalMinutesLeft = 0;
   }
+  myTicker->showStatus("End repeat");
 }
 LongTicker::LongTicker()
 : totalMinutesLeft(0) {}
+
+LongTicker::LongTicker(std::string tickName)
+: totalMinutesLeft(0)
+, tickerName(tickName) {}
 
 LongTicker::~LongTicker() {
   ticker.detach();
 }
 
+void LongTicker::showStatus(const char *functionName) {
+  struct tm *now = getCurrentTime();
+  Serial.print("[TICKER] ");Serial.print(getTime(now)); Serial.print("("); Serial.print(functionName); Serial.print(") ");
+  Serial.print(": Name: "); Serial.print(this->tickerName.c_str()); Serial.print(", minutesLeft: "); Serial.println(this->totalMinutesLeft);  
+}
+
 void LongTicker::once(int minutes, Ticker::callback_t cb) {
+  this->showStatus("Begin once");
+  if (ticker.active()) {
+    debug("ERROR: This ticker is already running");
+    return;        
+  }
   if (minutes > MAX_MINUTES_TICKER) {
     this->totalMinutesLeft = minutes - MAX_MINUTES_TICKER;
     this->cb = cb;
     ticker.once(MAX_MINUTES_TICKER * 60, repeat, this);
+    this->showStatus("End once");
     return;
   }
   ticker.once(minutes * 60, cb);
   this->totalMinutesLeft = 0;
+  this->showStatus("End once");
 }
 
 /*------------------------------------------------------------------------------------*/
 /* Intervals                                                                          */   
 /*------------------------------------------------------------------------------------*/
 Ticker ledTicker; // Builtin led ticker
-LongTicker poolPumpTicker;
-LongTicker irrigationPumpTicker;
-LongTicker midnightReschedulingTicker;
+LongTicker poolPumpTicker("Pool Pump");
+LongTicker irrigationPumpTicker("Irrigation");
+LongTicker midnightReschedulingTicker("Rescheduling");
 
 
 /*------------------------------------------------------------------------------------*/
@@ -172,7 +196,9 @@ void debug(const char * text) {
 }
 
 int minutesTillMidnight (struct tm now) {
-  return ((24 - now.tm_hour) * 60) - (now.tm_min == 0 ? 0 : 60 - now.tm_min);
+  Serial.print("DAYLIGHT SAVING TIME: "); Serial.println(now.tm_isdst);
+  int offset = (now.tm_isdst == 1 ? 60 : 0);
+  return ((23 - now.tm_hour) * 60) + (now.tm_min == 0 ? 0 : 60 - now.tm_min) + offset;
 }
 
 int minutesTillMidnight() {
