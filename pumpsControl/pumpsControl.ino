@@ -24,6 +24,18 @@ const char *START_POOL_TIME = "07:00:00";
 const char *DAYS_OF_THE_WEEK[] = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 /*------------------------------------------------------------------------------------*/
+/* Forward Declarations                                                               */   
+/*------------------------------------------------------------------------------------*/
+void debug(const char * text);
+void debug(std::string text);
+
+/*------------------------------------------------------------------------------------*/
+/* GPIO Definitions                                                                   */   
+/*------------------------------------------------------------------------------------*/
+const int POOL_PUMP_GPIO = 12;
+const int IRRIGATION_PUMP_GPIO = 13;
+
+/*------------------------------------------------------------------------------------*/
 /* Helper Classes                                                                   */   
 /*------------------------------------------------------------------------------------*/
 typedef struct PoolParametersData   {
@@ -99,17 +111,44 @@ class IrrigationParameters {
     char timebuffer[100];
 };
 
+class Pump {
+  public:
+    Pump(const char *pumpName, int gpioIndex)
+    :name(pumpName),
+    gpio(gpioIndex),
+    active(false){};
+    ~Pump() {
+      stop();
+    };
+
+    virtual void start() {
+      debug(name + " pump started");
+      active = true;
+    };
+    virtual void stop() {
+      debug(name + " pump stop");
+      active = false;
+    };
+    bool isRunning() {
+      return active;
+    };
+  protected:
+    std::string name;
+    int gpio;
+    bool active;
+};
+
 /*------------------------------------------------------------------------------------*/
 /* Global Variables                                                                   */   
 /*------------------------------------------------------------------------------------*/
 PoolParameters poolParams;
 IrrigationParameters irrigationParams;
+Pump poolPump("Pool", POOL_PUMP_GPIO); 
+Pump irrigationPump("Irrigation", IRRIGATION_PUMP_GPIO);
 
 int irrigationZone = 1;
 struct tm *startTime;
 char timebuffer[100];
-bool poolPumpRunnig = false;
-bool irrigationPumpRunning = false;
 
 /*------------------------------------------------------------------------------------*/
 /* My Ticker for longer timers                                                        */   
@@ -217,12 +256,6 @@ LongTicker poolPumpTicker("Pool Pump");
 LongTicker irrigationPumpTicker("Irrigation");
 LongTicker midnightReschedulingTicker("Rescheduling");
 
-
-/*------------------------------------------------------------------------------------*/
-/* GPIO Definitions                                                                   */   
-/*------------------------------------------------------------------------------------*/
-
-
 /*------------------------------------------------------------------------------------*/
 /* HTTP Server                                                                          */   
 /*------------------------------------------------------------------------------------*/
@@ -293,6 +326,10 @@ void debug(const char * text) {
   Serial.print("[PUMPCTRL] ");Serial.print(getTime(now)); Serial.print(":"); Serial.println(text);  
 }
 
+void debug(std::string text) {
+  debug(text.c_str());
+}
+
 int minutesTillMidnight (struct tm now) {
   Serial.print("DAYLIGHT SAVING TIME: "); Serial.println(now.tm_isdst);
   int offset = (now.tm_isdst == 1 ? 60 : 0);
@@ -307,9 +344,6 @@ int minutesTillMidnight() {
 /*------------------------------------------------------------------------------------*/
 /* Global Pumps Control Functions                                                        */   
 /*------------------------------------------------------------------------------------*/
-// Forward declarations
-//void stopPoolPump(int);
-//void stopIrrigationPump(int);
 
 // Start Pool Pump Based on Schedule
 void startPoolPump () {
@@ -317,17 +351,13 @@ void startPoolPump () {
 }
 
 void startPoolPump(int minutes) {
-  debug("Starting Pool Pump");
-  //TODO: Start Pool Pump
-  poolPumpRunnig = true;
+  poolPump.start();
   poolPumpTicker.once(minutes, stopPoolPump);
 }
 
 void stopPoolPump () {
-  debug("Stoping Pool Pump");
-  //TODO: Stop Pool Pump
+  poolPump.stop();
   midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
-  poolPumpRunnig = false;
   return;
 }
 
@@ -336,18 +366,14 @@ void startIrrigationPump () {
 }
 
 void startIrrigationPump (int minutes) {
-  debug("Starting Irrigation Pump");
-  //TODO: Start Irrigation Pump
-  irrigationPumpRunning = true;
+  irrigationPump.start();
   irrigationPumpTicker.once(minutes, stopIrrigationPump);
 }
 
 void stopIrrigationPump () {
-  debug("Stoping Irrigation Pump");
-  //TODO: Stop Irrigation Pump
+  irrigationPump.stop();
   if (irrigationZone >= irrigationParams.getIrrigationZones()) {
     irrigationZone = 1;
-    irrigationPumpRunning = false;
     midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
     return;
   }
