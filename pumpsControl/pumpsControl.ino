@@ -25,6 +25,68 @@ const char *DAYS_OF_THE_WEEK[] = { "Sunday", "Monday", "Tuesday", "Wednesday", "
 /*------------------------------------------------------------------------------------*/
 /* Global Variables                                                                   */   
 /*------------------------------------------------------------------------------------*/
+
+typedef struct PoolParametersData   {
+  struct tm startPoolPumpTime = {0};
+  int poolPumpRunTimeHours = POOL_PUMP_RUNNING_TIME_HOURS;
+};
+
+typedef struct IrrigationParametersData {
+  std::bitset<7> irrigationWeekDays = IRRIGATION_WEEK_DAYS;
+  int zoneIrrigationTimeMinutes = ZONE_IRRIGATION_TIME_MINUTES;
+  struct tm startIrrigationTime = {0}; 
+  int delayBetweenZonesIrrigationMinutes = DELAY_BETWEEN_IRRIGATION_ZONES_MINUTES;
+  int irrigationZones = IRRIGATION_ZONES;
+};
+
+class PoolParameters {
+  public:
+    PoolParameters(){
+      strptime(START_POOL_TIME, "%T", &poolParametersData.startPoolPumpTime);
+    };
+    ~PoolParameters() {};
+    struct tm getStartPoolPumpTime(void) {
+      return poolParametersData.startPoolPumpTime;
+    };
+    int getPoolPumpTimeHours(void) {
+      return poolParametersData.poolPumpRunTimeHours;
+    };
+  private:
+    PoolParametersData poolParametersData;
+};
+
+
+class IrrigationParameters {
+  public:
+    IrrigationParameters() {
+      strptime(START_IRRIGATION_TIME, "%T", &irrigationParametersData.startIrrigationTime);
+    };
+    ~IrrigationParameters() {};
+
+    std::bitset<7> getIrrigationWeekDays() {
+      return irrigationParametersData.irrigationWeekDays;
+    }
+
+    int getZoneIrrigationTimeMinutes() {
+      return irrigationParametersData.zoneIrrigationTimeMinutes;
+    }
+
+    struct tm getIrrigationStartTime() {
+      return irrigationParametersData.startIrrigationTime;
+    }
+
+    int getDelayBetweenZonesMinutes() {
+      return irrigationParametersData.delayBetweenZonesIrrigationMinutes;
+    }
+
+    int getIrrigationZones() {
+      return irrigationParametersData.irrigationZones;
+    }
+
+  private:
+    IrrigationParametersData irrigationParametersData;
+};
+
 std::bitset<7> irrigationWeekDays;
 int zoneIrrigationTimeMinutes;
 struct tm startIrrigationTime = {0};
@@ -36,7 +98,6 @@ struct tm *startTime;
 char timebuffer[100];
 bool poolPumpRunnig = false;
 bool irrigationPumpRunning = false;
-bool irrigationZoneDelayRunning = false;
 
 /*------------------------------------------------------------------------------------*/
 /* My Ticker for larger timers                                                        */   
