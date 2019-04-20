@@ -124,28 +124,53 @@ public:
   ~LongTicker();
     
   void once(int minutes, Ticker::callback_t cb);
+  void showStatus(const char *functionName);
+  bool isRunning(void) {
+    return ticker.active();
+  }
+  void detach() {
+    ticker.detach();
+  }
+  void setTotalMinutesLeft(int minutes) {
+    totalMinutesLeft = minutes;
+  }
+
+  int getTotalMinutesLeft(void) {
+    return totalMinutesLeft;
+  }
+
+  Ticker::callback_t getCallback(void) {
+    return cb;
+  }
+
+  void setCallBack(Ticker::callback_t callback) {
+    cb = callback;
+  }
+
+  Ticker getTicker(void) {
+    return ticker;
+  }
+private:
+  Ticker ticker;
+  std::string tickerName;
   int totalMinutesLeft;
   Ticker::callback_t cb;
-  Ticker ticker;
-  void showStatus(const char *functionName);
-private:
-  std::string tickerName;
 };
 
 void repeat(LongTicker *myTicker) {
   myTicker->showStatus("Begin repeat");
-  int tickerMinutes = std::min(myTicker->totalMinutesLeft, LongTicker::MAX_MINUTES_TICKER);
+  int tickerMinutes = std::min(myTicker->getTotalMinutesLeft(), LongTicker::MAX_MINUTES_TICKER);
   if (tickerMinutes <= 0) {
-    myTicker->cb();
+    myTicker->getCallback()();
   } else {
-    if (myTicker->totalMinutesLeft > LongTicker::MAX_MINUTES_TICKER) {
-      myTicker->totalMinutesLeft -= tickerMinutes;
-      myTicker->ticker.once(LongTicker::MAX_MINUTES_TICKER * 60, repeat, myTicker);
+    if (myTicker->getTotalMinutesLeft() > LongTicker::MAX_MINUTES_TICKER) {
+      myTicker->setTotalMinutesLeft(myTicker->getTotalMinutesLeft() - tickerMinutes);
+      myTicker->getTicker().once(LongTicker::MAX_MINUTES_TICKER * 60, repeat, myTicker);
       myTicker->showStatus("End repeat");
       return;
     }
-    myTicker->ticker.once(myTicker->totalMinutesLeft * 60, myTicker->cb);
-    myTicker->totalMinutesLeft = 0;
+    myTicker->getTicker().once(myTicker->getTotalMinutesLeft() * 60, myTicker->getCallback());
+    myTicker->setTotalMinutesLeft(0);
   }
   myTicker->showStatus("End repeat");
 }
