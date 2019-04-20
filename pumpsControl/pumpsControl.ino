@@ -14,14 +14,86 @@ const char* ACCESS_POINT_PASS = "esp8266";
 // HTTP Server 
 const int HTTP_SERVER_PORT = 80;
 // Default values
-const std::bitset<7> IRRIGATION_WEEK_DAYS (0x54);
+const std::bitset<7> IRRIGATION_WEEK_DAYS (0x28); // =0101010 Sunday least significant, Saturday most significant
 const int ZONE_IRRIGATION_TIME_MINUTES = 20;
 const char *START_IRRIGATION_TIME = "02:00:00";
-const int POOL_PUMP_RUNING_TIME_HOURS = 6;
+const int POOL_PUMP_RUNNING_TIME_HOURS = 6;
 const char *START_POOL_TIME = "07:00:00";
-const int DELAY_BETWEEN_IRRIGATION_ZONES_MINUTES = 5;
+const int DELAY_BETWEEN_IRRIGATION_ZONES_MINUTES = 5; //Cannot be more than 72 minutes
 const int IRRIGATION_ZONES = 4;
-const char *DAYS_OF_THE_WEEK[] = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
+const char *DAYS_OF_THE_WEEK[] = { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+/*------------------------------------------------------------------------------------*/
+/* Global Variables                                                                   */   
+/*------------------------------------------------------------------------------------*/
+std::bitset<7> irrigationWeekDays;
+int zoneIrrigationTimeMinutes;
+struct tm startIrrigationTime = {0};
+int poolPumpRunTimeHours;
+struct tm startPoolPumpTime = {0};
+int delayBetweenZonesIrrigationMinutes;
+int irrigationZone = 1;
+struct tm *startTime;
+char timebuffer[100];
+bool poolPumpRunnig = false;
+bool irrigationPumpRunning = false;
+bool irrigationZoneDelayRunning = false;
+
+/*------------------------------------------------------------------------------------*/
+/* My Ticker for larger timers                                                        */   
+/*------------------------------------------------------------------------------------*/
+class LongTicker 
+{
+public:
+  static const int MAX_MINUTES_TICKER = 60;
+
+  LongTicker();
+  ~LongTicker();
+    
+  void once(int minutes, Ticker::callback_t cb);
+  int totalMinutesLeft;
+  Ticker::callback_t cb;
+  Ticker ticker;
+};
+
+void repeat(LongTicker *myTicker) {
+  int tickerMinutes = std::min(myTicker->totalMinutesLeft, LongTicker::MAX_MINUTES_TICKER);
+  if (tickerMinutes <= 0) {
+    myTicker->cb();
+  } else {
+    if (myTicker->totalMinutesLeft > LongTicker::MAX_MINUTES_TICKER) {
+      myTicker->totalMinutesLeft -= tickerMinutes;
+      myTicker->ticker.once(LongTicker::MAX_MINUTES_TICKER * 60, repeat, myTicker);
+      return;
+    }
+    myTicker->ticker.once(myTicker->totalMinutesLeft * 60, myTicker->cb);
+    myTicker->totalMinutesLeft = 0;
+  }
+}
+LongTicker::LongTicker()
+: totalMinutesLeft(0) {}
+
+LongTicker::~LongTicker() {
+  ticker.detach();
+}
+
+void LongTicker::once(int minutes, Ticker::callback_t cb) {
+  if (minutes > MAX_MINUTES_TICKER) {
+    this->totalMinutesLeft = minutes - MAX_MINUTES_TICKER;
+    this->cb = cb;
+    ticker.once(MAX_MINUTES_TICKER * 60, repeat, this);
+    return;
+  }
+  ticker.once(minutes * 60, cb);
+  this->totalMinutesLeft = 0;
+}
+
+/*------------------------------------------------------------------------------------*/
+/* Intervals                                                                          */   
+/*------------------------------------------------------------------------------------*/
+Ticker ledTicker; // Builtin led ticker
+LongTicker poolPumpTicker;
+LongTicker irrigationPumpTicker;
+LongTicker midnightReschedulingTicker;
 
 
 /*------------------------------------------------------------------------------------*/
@@ -91,52 +163,78 @@ void startServer () {
   server.on("/configPoolCycle", handleConfigPoolCycle);
   server.on("/configIrrigationCycle", handleConfigIrrigationCycle);
 }
+/*------------------------------------------------------------------------------------*/
+/* Helpers                                                                            */   
+/*------------------------------------------------------------------------------------*/
+void debug(const char * text) {
+  struct tm *now = getCurrentTime();
+  Serial.print("[PUMPCTRL] ");Serial.print(getTime(now)); Serial.print(":"); Serial.println(text);  
+}
+
+int minutesTillMidnight (struct tm now) {
+  return ((24 - now.tm_hour) * 60) - (now.tm_min == 0 ? 0 : 60 - now.tm_min);
+}
+
+int minutesTillMidnight() {
+  struct tm *now = getCurrentTime();
+  return minutesTillMidnight(*now);
+}
 
 /*------------------------------------------------------------------------------------*/
-/* Pumps Actions                                                                      */   
+/* Global Pumps Control Functions                                                        */   
 /*------------------------------------------------------------------------------------*/
+// Forward declarations
+//void stopPoolPump(int);
+//void stopIrrigationPump(int);
+
+// Start Pool Pump Based on Schedule
 void startPoolPump () {
-  time_t tnow = time(nullptr);
-  Serial.print("Starting Pool Pump at "); Serial.println(String(ctime(&tnow)));
+  startPoolPump(poolPumpRunTimeHours * 60);
+}
+
+void startPoolPump(int minutes) {
+  debug("Starting Pool Pump");
+  //TODO: Start Pool Pump
+  poolPumpRunnig = true;
+  poolPumpTicker.once(minutes, stopPoolPump);
 }
 
 void stopPoolPump () {
-  time_t tnow = time(nullptr);
-  Serial.println("Stoping Pool Pump at "); Serial.println(String(ctime(&tnow)));
+  debug("Stoping Pool Pump");
+  //TODO: Stop Pool Pump
+  midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+  poolPumpRunnig = false;
+  return;
 }
 
 void startIrrigationPump () {
-  time_t tnow = time(nullptr);
-  Serial.println("Starting Irrigation pump"); Serial.println(String(ctime(&tnow)));
+  startIrrigationPump(zoneIrrigationTimeMinutes);
+}
+
+void startIrrigationPump (int minutes) {
+  debug("Starting Irrigation Pump");
+  //TODO: Start Irrigation Pump
+  irrigationPumpRunning = true;
+  irrigationPumpTicker.once(minutes, stopIrrigationPump);
 }
 
 void stopIrrigationPump () {
-  time_t tnow = time(nullptr);
-  Serial.println("Stoping Irrigation pump"); Serial.println(String(ctime(&tnow)));
+  debug("Stoping Irrigation Pump");
+  //TODO: Stop Irrigation Pump
+  if (irrigationZone >= IRRIGATION_ZONES) {
+    irrigationZone = 1;
+    irrigationPumpRunning = false;
+    midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+    return;
+  }
+  debug("Starting delay between irrigation zones");
+  irrigationZone++;
+  irrigationPumpTicker.once(DELAY_BETWEEN_IRRIGATION_ZONES_MINUTES * 60, startIrrigationPump);
+  return;
 }
-/*------------------------------------------------------------------------------------*/
-/* Intervals                                                                          */   
-/*------------------------------------------------------------------------------------*/
-Ticker ledTicker; // Builtin led ticker
-Ticker poolPumpTicker;
-Ticker irrigationPumpTicker;
 
 /*------------------------------------------------------------------------------------*/
-/* Global Variables                                                                   */   
-/*------------------------------------------------------------------------------------*/
-std::bitset<7> irrigationWeekDays;
-int zoneIrrigationTimeMinutes;
-struct tm startIrrigationTime = {0};
-int poolPumpRunTimeHours;
-struct tm startPoolPumpTime = {0};
-int delayBetweenZonesIrrigationMinutes;
-int irrigationZone = 0;
-struct tm *startTime;
-char timebuffer[20];
-
-
-/*------------------------------------------------------------------------------------*/
-/* Global Functions                                                                   */   
+/* Global Scheduling Functions                                                        */   
 /*------------------------------------------------------------------------------------*/
 // Initialize Scheduling data
 String getDaysOfTheWeek(std::bitset<7> daysOfTheWeek) {
@@ -158,7 +256,7 @@ void initScheduling() {
   zoneIrrigationTimeMinutes = ZONE_IRRIGATION_TIME_MINUTES;
   strptime(START_IRRIGATION_TIME, "%T", &startIrrigationTime);
   
-  poolPumpRunTimeHours = POOL_PUMP_RUNING_TIME_HOURS;
+  poolPumpRunTimeHours = POOL_PUMP_RUNNING_TIME_HOURS;
 
   strptime(START_POOL_TIME, "%T", &startPoolPumpTime);
   delayBetweenZonesIrrigationMinutes = DELAY_BETWEEN_IRRIGATION_ZONES_MINUTES;
@@ -173,11 +271,84 @@ void initScheduling() {
   Serial.print("Interval between irrigation zones: "); Serial.println(delayBetweenZonesIrrigationMinutes);
   
 }
+void reschedule() {
+  struct tm *now = getCurrentTime();
+  schedulePoolPump(*now);
+  scheduleIrrigationPump(*now);  
+  return;
+}
 
-// Initialize Pump Ticker
-void initPumpTickers(struct tm now) {
-  Serial.println("Initializing pumps tickers");
-   
+// Schedule Pool Pump
+void schedulePoolPump(struct tm now) {
+  debug("Initializing pumps tickers");
+  //-------------------------------
+  // Check Pool Pump
+  //-------------------------------
+  if (now.tm_hour >= startPoolPumpTime.tm_hour) {
+    if (now.tm_hour < (startPoolPumpTime.tm_hour + poolPumpRunTimeHours)) {
+      // Pump Should be running. How long?
+      int hoursLeft = startPoolPumpTime.tm_hour + poolPumpRunTimeHours - now.tm_hour;
+      int minutesLeft = hoursLeft * 60 - (now.tm_min > startPoolPumpTime.tm_min ? 60 - now.tm_min : now.tm_min - startPoolPumpTime.tm_min);
+      Serial.print("Start Pool Pump for ");Serial.print(minutesLeft); Serial.println(" minutes");
+      if (minutesLeft == 0) minutesLeft++; 
+      startPoolPump(minutesLeft);
+    } else {
+      // Too late to start the pump today. Reschedule at midnigth.
+      debug("Too late to start the pump today. Reschedule at midnight");
+      midnightReschedulingTicker.once(minutesTillMidnight(now), reschedule);
+    }
+  } else {
+    //Too Early to start today
+    int hoursLeft = startPoolPumpTime.tm_hour - now.tm_hour;  
+    int minutesLeft = hoursLeft * 60;
+    if (now.tm_min > startPoolPumpTime.tm_min) {
+      minutesLeft -= (now.tm_min - startPoolPumpTime.tm_min);
+    } else {
+      minutesLeft += (startPoolPumpTime.tm_min - now.tm_min);
+    }
+    if (minutesLeft == 0) minutesLeft++;
+    Serial.print("Too early to start the pump today. Start in ");Serial.print(minutesLeft);Serial.println(" minutes");
+    poolPumpTicker.once(minutesLeft * 60, startPoolPump);
+  }
+}
+
+// Schedule Irrigation Pump
+void scheduleIrrigationPump(struct tm now) {
+  //-------------------------------
+  // Check Irrigation Pump.
+  // I do not know whether pump has been running before power on so I will start the whole cycle
+  // from the beginnig if whithin the irrigation time:
+  // (startIrrigationTime + zones * (zoneIrrigationTimeMinutes) + (zones-1) delayBetweenZonesIrrigationMinutes)
+  if (irrigationWeekDays.test(now.tm_wday) == false) {
+    //Today is not a irrigation day. Reschedule at th begining of the next day.
+    Serial.print("Today is ");Serial.print(DAYS_OF_THE_WEEK[now.tm_wday]);Serial.println(" and it is not an irrigation day");
+    midnightReschedulingTicker.once(minutesTillMidnight(now), reschedule);
+    return;
+  }
+  int totalIrrigationCycleMinutes = IRRIGATION_ZONES * zoneIrrigationTimeMinutes + (IRRIGATION_ZONES - 1) * delayBetweenZonesIrrigationMinutes;
+  if (now.tm_hour >= startIrrigationTime.tm_hour) {
+    if ((now.tm_hour * 60) > ((startIrrigationTime.tm_hour * 60) + totalIrrigationCycleMinutes)) {
+      // Too late to start irrigation today. Reschedule at midnight
+      debug("Too late to start the irrigation today. Reschedule at midnight");
+      midnightReschedulingTicker.once(minutesTillMidnight(now), reschedule);
+      return;
+    } else {
+      // Start Complete Irrigation Cycle 
+      debug("Within irrigation time. Start complete irrigation cycle");
+    }
+  } else {
+    //Too early to start irrigation
+    int hoursLeft = startIrrigationTime.tm_hour - now.tm_hour;  
+    int minutesLeft = hoursLeft * 60;
+    if (now.tm_min > startIrrigationTime.tm_min) {
+      minutesLeft -= (now.tm_min - startIrrigationTime.tm_min);
+    } else {
+      minutesLeft += (startIrrigationTime.tm_min - now.tm_min);
+    }
+    if (minutesLeft == 0) minutesLeft++;
+    Serial.print("Too early to start the irrigation today. Start in ");Serial.print(minutesLeft);Serial.println(" minutes");
+    irrigationPumpTicker.once(minutesLeft * 60, startIrrigationPump);
+  }
 }
 
 // Builtin LED flashing
@@ -188,10 +359,23 @@ void ledTick() {
 
 // WiFiManager Configuration CallBack
 void configModeCallback (WiFiManager *myWiFiManager) {
-  Serial.println("Entered config mode");
+  debug("Entered config mode");
   Serial.println(WiFi.softAPIP());
-  Serial.println(myWiFiManager->getConfigPortalSSID());
+  debug((myWiFiManager->getConfigPortalSSID()).c_str());
   ledTicker.attach(0.2, ledTick);
+}
+
+struct tm *getCurrentTime() {
+  // Get time twice to avoid ....1970
+  time(nullptr);
+  delay(1000);
+  time_t now = time(nullptr);
+  return localtime(&now);
+}
+
+char *getTime(struct tm *now) {
+  strftime(timebuffer, 20, "%c", now);
+  return timebuffer;
 }
 
 /*------------------------------------------------------------------------------------*/
@@ -212,25 +396,21 @@ void setup() {
     ESP.reset();
     delay(1000);  
   }
-  Serial.println("Connection Sucessful");
-  ledTicker.detach();
-  digitalWrite(BUILTIN_LED, LOW);
-
   // Config time
   setenv("TZ", "EST5EDT,M3.2.0/02:00:00,M11.1.0/02:00:00", 1);
   configTime(0, 0, "pool.ntp.org");
+  debug("System started");
 
-  // Get Time (twice to avoid .... 1970)
-  time_t now = time(nullptr);
-  delay(1000);
-  now = time(nullptr);
-  startTime = localtime(&now);
-  strftime(timebuffer, 20, "%c", startTime);
-  Serial.print("Starting Time: ");Serial.println(timebuffer);
+  debug("Connection Sucessful");
+  ledTicker.detach();
+  digitalWrite(BUILTIN_LED, LOW);
+
 
   // Initialize pumps tickers
   initScheduling();
-  initPumpTickers(*startTime);
+  startTime = getCurrentTime();
+  schedulePoolPump(*startTime);
+  scheduleIrrigationPump(*startTime);
   
   // Start http server
   startServer();
