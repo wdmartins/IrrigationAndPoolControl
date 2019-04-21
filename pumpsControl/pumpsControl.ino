@@ -28,6 +28,7 @@ const char *DAYS_OF_THE_WEEK[] = { "Sunday", "Monday", "Tuesday", "Wednesday", "
 /*------------------------------------------------------------------------------------*/
 void debug(const char * text);
 void debug(std::string text);
+struct tm *getCurrentTime();
 
 /*------------------------------------------------------------------------------------*/
 /* GPIO Definitions                                                                   */   
@@ -60,6 +61,15 @@ class PoolParameters {
     struct tm getStartPoolPumpTime(void) {
       return poolParametersData.startPoolPumpTime;
     };
+
+    time_t getTodayStartPoolPumpTime(void) {
+      struct tm *currentTime = getCurrentTime();
+      currentTime->tm_hour = poolParametersData.startPoolPumpTime.tm_hour; 
+      currentTime->tm_min = poolParametersData.startPoolPumpTime.tm_min; 
+      currentTime->tm_sec = poolParametersData.startPoolPumpTime.tm_sec;
+      return mktime(currentTime); 
+    }
+
     char *getStartPoolPumpTimeStr() {
       strftime(timebuffer, 20, "%T", &poolParametersData.startPoolPumpTime);
       return timebuffer;
@@ -68,6 +78,11 @@ class PoolParameters {
     int getPoolPumpTimeHours(void) {
       return poolParametersData.poolPumpRunTimeHours;
     };
+
+    time_t getTodayStopPoolPumpTime(void) {
+      return getTodayStartPoolPumpTime() + poolParametersData.poolPumpRunTimeHours * 3600;
+    }
+
   private:
     PoolParametersData poolParametersData;
     char timebuffer[100];
@@ -93,6 +108,25 @@ class IrrigationParameters {
       return irrigationParametersData.startIrrigationTime;
     }
 
+    time_t getTodayIrrigationStartTime(void) {
+      struct tm *currentTime = getCurrentTime();
+      currentTime->tm_hour = irrigationParametersData.startIrrigationTime.tm_hour; 
+      currentTime->tm_min = irrigationParametersData.startIrrigationTime.tm_min; 
+      currentTime->tm_sec = irrigationParametersData.startIrrigationTime.tm_sec;
+      return mktime(currentTime); 
+    }
+
+    time_t getCycleDuration(void) {
+      int zones = getIrrigationZones();
+      int totalIrrigationCycleMinutes = zones * getZoneIrrigationTimeMinutes()
+          + (zones - 1) * getDelayBetweenZonesMinutes();
+      return totalIrrigationCycleMinutes * 60;
+    }
+
+    time_t getTodayIrrigationStopTime(void) {
+      return getTodayIrrigationStartTime() + getCycleDuration();
+    }
+    
     char *getIrrigationStartTimeStr() {
       strftime(timebuffer, 20, "%T", &irrigationParametersData.startIrrigationTime);
       return timebuffer;
@@ -104,6 +138,10 @@ class IrrigationParameters {
 
     int getIrrigationZones() {
       return irrigationParametersData.irrigationZones;
+    }
+
+    bool isIrrigationDay(struct tm now) {
+      return getIrrigationWeekDays().test(now.tm_wday);  
     }
 
   private:
@@ -323,9 +361,7 @@ void debug(std::string text) {
 }
 
 int minutesTillMidnight (struct tm now) {
-  Serial.print("DAYLIGHT SAVING TIME: "); Serial.println(now.tm_isdst);
-  int offset = (now.tm_isdst == 1 ? 60 : 0);
-  return ((23 - now.tm_hour) * 60) + (now.tm_min == 0 ? 0 : 60 - now.tm_min) + offset;
+  return ((23 - now.tm_hour) * 60) + (now.tm_min == 0 ? 0 : 60 - now.tm_min);
 }
 
 int minutesTillMidnight() {
@@ -412,80 +448,48 @@ void reschedule() {
 // Schedule Pool Pump
 void schedulePoolPump(struct tm now) {
   debug("Initializing pumps tickers");
-  //-------------------------------
-  // Check Pool Pump
-  //-------------------------------
-  if (now.tm_hour > poolParams.getStartPoolPumpTime().tm_hour || 
-       (now.tm_hour ==  poolParams.getStartPoolPumpTime().tm_hour && 
-       now.tm_min > poolParams.getStartPoolPumpTime().tm_min)) {
-    if (now.tm_hour < (poolParams.getStartPoolPumpTime().tm_hour + poolParams.getPoolPumpTimeHours())) {
-      // Pump Should be running. How long?
-      int hoursLeft = poolParams.getStartPoolPumpTime().tm_hour + poolParams.getPoolPumpTimeHours() - now.tm_hour;
-      int minutesLeft = hoursLeft * 60 - (now.tm_min > poolParams.getStartPoolPumpTime().tm_min ? 60 - now.tm_min : now.tm_min - poolParams.getStartPoolPumpTime().tm_min);
-      minutesLeft += (now.tm_isdst == 1 ? 60 : 0);
-      Serial.print("Start Pool Pump for ");Serial.print(minutesLeft); Serial.println(" minutes");
-      if (minutesLeft == 0) minutesLeft++; 
-      startPoolPump(minutesLeft);
-    } else {
+  time_t nowRaw = mktime(&now);
+  time_t poolStartRaw = poolParams.getTodayStartPoolPumpTime();
+  time_t poolStopRaw = poolParams.getTodayStopPoolPumpTime();
+  if (nowRaw >= poolStartRaw && nowRaw < poolStopRaw) {
+    // Pump should be running
+    startPoolPump((poolStopRaw - nowRaw) / 60);
+  } else if (nowRaw > poolStopRaw) {
       // Too late to start the pump today. Reschedule at midnigth.
       debug("Too late to start the pump today. Reschedule at midnight");
       midnightReschedulingTicker.once(minutesTillMidnight(now), reschedule);
-    }
   } else {
-    //Too Early to start today
-    int hoursLeft = poolParams.getStartPoolPumpTime().tm_hour - now.tm_hour;  
-    int minutesLeft = hoursLeft * 60;
-    if (now.tm_min > poolParams.getStartPoolPumpTime().tm_min) {
-      minutesLeft -= (now.tm_min - poolParams.getStartPoolPumpTime().tm_min);
-    } else {
-      minutesLeft += (poolParams.getStartPoolPumpTime().tm_min - now.tm_min);
-    }
-    minutesLeft += (now.tm_isdst == 1 ? 60 : 0);
-    if (minutesLeft == 0) minutesLeft++;
-    Serial.print("Too early to start the pump today. Start in ");Serial.print(minutesLeft);Serial.println(" minutes");
-    poolPumpTicker.once(minutesLeft, startPoolPump);
+    // To early to start today
+    int minutesToStart = (poolStartRaw - nowRaw) / 60;
+    Serial.print("Too early to start the pump today. Start in ");Serial.print(minutesToStart);Serial.println(" minutes");
+    poolPumpTicker.once(minutesToStart, startPoolPump);
   }
 }
 
 // Schedule Irrigation Pump
 void scheduleIrrigationPump(struct tm now) {
-  //-------------------------------
-  // Check Irrigation Pump.
-  // I do not know whether pump has been running before power on so I will start the whole cycle
-  // from the beginnig if whithin the irrigation time:
-  // (startIrrigationTime + zones * (zoneIrrigationTimeMinutes) + (zones-1) delayBetweenZonesIrrigationMinutes)
-  if (irrigationParams.getIrrigationWeekDays().test(now.tm_wday) == false) {
+  if (irrigationParams.isIrrigationDay(now) == false) {
     //Today is not a irrigation day. Reschedule at th begining of the next day.
     Serial.print("Today is ");Serial.print(DAYS_OF_THE_WEEK[now.tm_wday]);Serial.println(" and it is not an irrigation day");
     midnightReschedulingTicker.once(minutesTillMidnight(now), reschedule);
     return;
   }
-  
-  int totalIrrigationCycleMinutes = irrigationParams.getIrrigationZones() * irrigationParams.getZoneIrrigationTimeMinutes()
-      + (irrigationParams.getIrrigationZones() - 1) * irrigationParams.getDelayBetweenZonesMinutes();
-  
-  if (now.tm_hour >= irrigationParams.getIrrigationStartTime().tm_hour) {
-    if ((now.tm_hour * 60) > ((irrigationParams.getIrrigationStartTime().tm_hour * 60) + totalIrrigationCycleMinutes)) {
-      // Too late to start irrigation today. Reschedule at midnight
-      debug("Too late to start the irrigation today. Reschedule at midnight");
+  time_t nowRaw = mktime(&now);
+  time_t irrigationStartRaw = irrigationParams.getTodayIrrigationStartTime();
+  time_t irrigationStopRaw = irrigationParams.getTodayIrrigationStopTime();
+
+   if (nowRaw >= irrigationStartRaw && nowRaw < irrigationStopRaw) {
+    // Start irrigation cycle
+    startIrrigationPump();
+  } else if (nowRaw > irrigationStopRaw) {
+      // Too late to start the irrigation today. Reschedule at midnigth.
+      debug("Too late to start the pump today. Reschedule at midnight");
       midnightReschedulingTicker.once(minutesTillMidnight(now), reschedule);
-      return;
-    } else {
-      // Start Complete Irrigation Cycle 
-      debug("Within irrigation time. Start complete irrigation cycle");
-    }
   } else {
-    //Too early to start irrigation
-    int hoursLeft = irrigationParams.getIrrigationStartTime().tm_hour - now.tm_hour;  
-    int minutesLeft = hoursLeft * 60;
-    if (now.tm_min > irrigationParams.getIrrigationStartTime().tm_min) {
-      minutesLeft -= (now.tm_min - irrigationParams.getIrrigationStartTime().tm_min);
-    } else {
-      minutesLeft += (irrigationParams.getIrrigationStartTime().tm_min - now.tm_min);
-    }
-    if (minutesLeft == 0) minutesLeft++;
-    Serial.print("Too early to start the irrigation today. Start in ");Serial.print(minutesLeft);Serial.println(" minutes");
-    irrigationPumpTicker.once(minutesLeft * 60, startIrrigationPump);
+    // To early to start today
+    int minutesToStart = (irrigationStartRaw - nowRaw) / 60;
+    Serial.print("Too early to start the irrigation today. Start in ");Serial.print(minutesToStart);Serial.println(" minutes");
+    irrigationPumpTicker.once(minutesToStart, startIrrigationPump);
   }
 }
 
