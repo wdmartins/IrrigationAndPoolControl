@@ -157,7 +157,11 @@ class LongTicker
 {
 public:
   static const int MAX_MINUTES_TICKER = 60;
+  // Keep ticker and cb public
+  Ticker ticker;
+  Ticker::callback_t cb;
 
+public:
   LongTicker();
   LongTicker(std::string tickerName);
   ~LongTicker();
@@ -178,37 +182,24 @@ public:
     return totalMinutesLeft;
   }
 
-  Ticker::callback_t getCallback(void) {
-    return cb;
-  }
-
-  void setCallBack(Ticker::callback_t callback) {
-    cb = callback;
-  }
-
-  Ticker getTicker(void) {
-    return ticker;
-  }
 private:
-  Ticker ticker;
   std::string tickerName;
   int totalMinutesLeft;
-  Ticker::callback_t cb;
 };
 
 void repeat(LongTicker *myTicker) {
   myTicker->showStatus("Begin repeat");
   int tickerMinutes = std::min(myTicker->getTotalMinutesLeft(), LongTicker::MAX_MINUTES_TICKER);
   if (tickerMinutes <= 0) {
-    myTicker->getCallback()();
+    myTicker->cb();
   } else {
     if (myTicker->getTotalMinutesLeft() > LongTicker::MAX_MINUTES_TICKER) {
       myTicker->setTotalMinutesLeft(myTicker->getTotalMinutesLeft() - tickerMinutes);
-      myTicker->getTicker().once(LongTicker::MAX_MINUTES_TICKER * 60, repeat, myTicker);
+      myTicker->ticker.once(LongTicker::MAX_MINUTES_TICKER * 60, repeat, myTicker);
       myTicker->showStatus("End repeat");
       return;
     }
-    myTicker->getTicker().once(myTicker->getTotalMinutesLeft() * 60, myTicker->getCallback());
+    myTicker->ticker.once(myTicker->getTotalMinutesLeft() * 60, myTicker->cb);
     myTicker->setTotalMinutesLeft(0);
   }
   myTicker->showStatus("End repeat");
@@ -231,11 +222,12 @@ void LongTicker::showStatus(const char *functionName) {
 }
 
 void LongTicker::once(int minutes, Ticker::callback_t cb) {
-  this->showStatus("Begin once");
   if (ticker.active()) {
-    debug("ERROR: This ticker is already running");
-    return;        
+    debug("This ticker is already running. It will be detached");
+    ticker.detach();
   }
+  this->totalMinutesLeft = minutes;
+  this->showStatus("Begin once");
   if (minutes > MAX_MINUTES_TICKER) {
     this->totalMinutesLeft = minutes - MAX_MINUTES_TICKER;
     this->cb = cb;
@@ -423,7 +415,9 @@ void schedulePoolPump(struct tm now) {
   //-------------------------------
   // Check Pool Pump
   //-------------------------------
-  if (now.tm_hour >= poolParams.getStartPoolPumpTime().tm_hour) {
+  if (now.tm_hour > poolParams.getStartPoolPumpTime().tm_hour || 
+       (now.tm_hour ==  poolParams.getStartPoolPumpTime().tm_hour && 
+       now.tm_min > poolParams.getStartPoolPumpTime().tm_min)) {
     if (now.tm_hour < (poolParams.getStartPoolPumpTime().tm_hour + poolParams.getPoolPumpTimeHours())) {
       // Pump Should be running. How long?
       int hoursLeft = poolParams.getStartPoolPumpTime().tm_hour + poolParams.getPoolPumpTimeHours() - now.tm_hour;
@@ -447,7 +441,7 @@ void schedulePoolPump(struct tm now) {
     }
     if (minutesLeft == 0) minutesLeft++;
     Serial.print("Too early to start the pump today. Start in ");Serial.print(minutesLeft);Serial.println(" minutes");
-    poolPumpTicker.once(minutesLeft * 60, startPoolPump);
+    poolPumpTicker.once(minutesLeft, startPoolPump);
   }
 }
 
