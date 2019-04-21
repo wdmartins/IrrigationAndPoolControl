@@ -422,6 +422,7 @@ void schedulePoolPump(struct tm now) {
       // Pump Should be running. How long?
       int hoursLeft = poolParams.getStartPoolPumpTime().tm_hour + poolParams.getPoolPumpTimeHours() - now.tm_hour;
       int minutesLeft = hoursLeft * 60 - (now.tm_min > poolParams.getStartPoolPumpTime().tm_min ? 60 - now.tm_min : now.tm_min - poolParams.getStartPoolPumpTime().tm_min);
+      minutesLeft += (now.tm_isdst == 1 ? 60 : 0);
       Serial.print("Start Pool Pump for ");Serial.print(minutesLeft); Serial.println(" minutes");
       if (minutesLeft == 0) minutesLeft++; 
       startPoolPump(minutesLeft);
@@ -439,6 +440,7 @@ void schedulePoolPump(struct tm now) {
     } else {
       minutesLeft += (poolParams.getStartPoolPumpTime().tm_min - now.tm_min);
     }
+    minutesLeft += (now.tm_isdst == 1 ? 60 : 0);
     if (minutesLeft == 0) minutesLeft++;
     Serial.print("Too early to start the pump today. Start in ");Serial.print(minutesLeft);Serial.println(" minutes");
     poolPumpTicker.once(minutesLeft, startPoolPump);
