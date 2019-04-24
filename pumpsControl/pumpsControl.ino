@@ -35,10 +35,14 @@ struct tm *getCurrentTime();
 /*------------------------------------------------------------------------------------*/
 const int POOL_PUMP_GPIO = 12;
 const int IRRIGATION_PUMP_GPIO = 13;
+const int POOL_SWITCH = 14;
+const int IRRIGATION_SWITCH = 16;
+const int STATUS_LED_GPIO = 5;
 
 /*------------------------------------------------------------------------------------*/
 /* Helper Classes                                                                   */   
 /*------------------------------------------------------------------------------------*/
+
 typedef struct PoolParametersData   {
   struct tm startPoolPumpTime = {0};
   int poolPumpRunTimeHours = POOL_PUMP_RUNNING_TIME_HOURS;
@@ -52,6 +56,9 @@ typedef struct IrrigationParametersData {
   int irrigationZones = IRRIGATION_ZONES;
 };
 
+/*------------------------------------------------------------------------------------*/
+/* Pool Parametes Class                                                               */   
+/*------------------------------------------------------------------------------------*/
 class PoolParameters {
   public:
     PoolParameters(){
@@ -89,6 +96,9 @@ class PoolParameters {
 };
 
 
+/*------------------------------------------------------------------------------------*/
+/* Irrigation Parametes Class                                                         */   
+/*------------------------------------------------------------------------------------*/
 class IrrigationParameters {
   public:
     IrrigationParameters() {
@@ -149,32 +159,84 @@ class IrrigationParameters {
     char timebuffer[100];
 };
 
+/*------------------------------------------------------------------------------------*/
+/* Pump Class                                                                         */   
+/*------------------------------------------------------------------------------------*/
 class Pump {
   public:
     Pump(const char *pumpName, int gpioIndex)
     :name(pumpName),
     gpio(gpioIndex),
-    active(false){};
+    manualMode(false),
+    active(false){
+      pinMode(gpioIndex, OUTPUT);
+      digitalWrite(gpioIndex, LOW);
+      };
     ~Pump() {
       stop();
     };
 
-    virtual void start() {
+    virtual void start(bool manual = false) {
+      if (active) {
+        debug(name + " pump is already running in " + (manualMode ? "manual" : "schedule") + " mode");
+        return;
+      }
       debug(name + " pump started");
+      digitalWrite(gpio, HIGH);
       active = true;
+      manualMode = manual;
     };
-    virtual void stop() {
+    virtual void stop(bool manual = false) {
       debug(name + " pump stop");
+      digitalWrite(gpio, LOW);
       active = false;
+      manualMode = manual;
     };
     bool isRunning() {
       return active;
     };
+    bool isManual() {
+      return manualMode;
+    }
   protected:
     std::string name;
     int gpio;
     bool active;
+    bool manualMode;
 };
+
+/*------------------------------------------------------------------------------------*/
+/* Status LED Class                                                                   */   
+/*------------------------------------------------------------------------------------*/
+const float INIT = 0.5;
+const float NO_WIFI = 2;
+const float STABLE = 0;
+class StatusLED {
+  public:
+    enum Status {
+      unknown,
+      initializing,
+      stable,
+      no_wifi
+    };
+  
+    StatusLED(int gpioIndex, Status status=initializing)
+      :gpio(gpioIndex),
+      state(unknown) {
+        pinMode(gpioIndex, OUTPUT);
+        setStatus(status);
+      };
+    
+    void setStatus(Status status);
+    int getGpio() {
+      return gpio;
+    };
+  private:
+    Ticker ticker;
+    Status state;
+    int gpio;
+};
+
 
 /*------------------------------------------------------------------------------------*/
 /* Global Variables                                                                   */   
@@ -278,6 +340,37 @@ void LongTicker::once(int minutes, Ticker::callback_t cb) {
   this->showStatus("End once");
 }
 
+void statusCb(StatusLED *led) {
+  int state = digitalRead(led->getGpio());
+  digitalWrite(led->getGpio(), !state);
+}
+
+void StatusLED::setStatus(Status status) {
+  debug("Change status");
+  if (status != state) {
+    ticker.detach();
+    float period = 0;
+    state = status;
+    switch(state) {
+      case initializing:
+        period = INIT;
+        break;
+      case stable:
+        period = STABLE;
+        break;
+      case no_wifi:
+        period = NO_WIFI;
+        break;
+     }
+     if(period == 0) {
+       digitalWrite(gpio, HIGH);
+     } else {
+       ticker.attach(period, statusCb, this);
+     }
+  }
+}
+
+
 /*------------------------------------------------------------------------------------*/
 /* Intervals                                                                          */   
 /*------------------------------------------------------------------------------------*/
@@ -285,6 +378,7 @@ Ticker ledTicker; // Builtin led ticker
 LongTicker poolPumpTicker("Pool Pump");
 LongTicker irrigationPumpTicker("Irrigation");
 LongTicker midnightReschedulingTicker("Rescheduling");
+StatusLED statusLed(STATUS_LED_GPIO); // Status LED
 
 /*------------------------------------------------------------------------------------*/
 /* HTTP Server                                                                          */   
@@ -553,9 +647,15 @@ void setup() {
   startTime = getCurrentTime();
   schedulePoolPump(*startTime);
   scheduleIrrigationPump(*startTime);
+
+  // Initialize switches
+  pinMode(POOL_SWITCH, INPUT);
+  pinMode(IRRIGATION_SWITCH, INPUT);
   
   // Start http server
   startServer();
+
+  statusLed.setStatus(StatusLED::Status::stable);
 }
 
 /*------------------------------------------------------------------------------------*/
@@ -563,4 +663,21 @@ void setup() {
 /*------------------------------------------------------------------------------------*/
 void loop() {
   server.handleClient();
+  // Check switches
+
+  int poolSwitch = digitalRead(POOL_SWITCH);
+  if (poolSwitch) {
+    poolPump.start(true);
+  } else if (!poolSwitch && poolPump.isRunning() && poolPump.isManual()) {
+    poolPump.stop(true);
+    midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+  }
+
+  int irrigationSwitch = digitalRead(IRRIGATION_SWITCH);
+  if (irrigationSwitch) {
+    irrigationPump.start(true);
+  } else if (!irrigationSwitch && irrigationPump.isRunning() && irrigationPump.isManual()) {
+    irrigationPump.stop(true);
+    midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+  }
 }
