@@ -228,6 +228,8 @@ LongTicker poolPumpTicker("Pool Pump");
 LongTicker irrigationPumpTicker("Irrigation");
 LongTicker midnightReschedulingTicker("Rescheduling");
 StatusLED statusLed(STATUS_LED_GPIO); // Status LED
+int currentPoolSwitchStatus = LOW;
+int currentIrrigationSwitchStatus = LOW;
 
 /*------------------------------------------------------------------------------------*/
 /* HTTP Server                                                                          */   
@@ -246,12 +248,14 @@ void handleGetStatus() {
 
 void handleStartPoolPump() {
     Serial.println("Request to start pool pump");
-    server.send(200);
+    poolPump.start(true);
+    server.send(200, "text/plain", "Pool pump started");
 }
 
 void handleStopPoolPump() {
     Serial.println("Request to stop pool pump");
-    server.send(200);
+    poolPump.stop(true);
+    server.send(200, "text/plain", "Pool pump stop");
 }
 
 void handleStartIrrigationPump() {
@@ -283,13 +287,13 @@ void startServer () {
   server.begin();
   server.onNotFound(handleNotFound);
   server.on("/status", handleGetStatus);
-  server.on("/startPoolPump", handleStartPoolPump);
-  server.on("/stopPoolPump", handleStopPoolPump);
-  server.on("/startIrrigationPump", handleStartIrrigationPump);
-  server.on("/stopIrrigationPump", handleStopIrrigationPump);
-  server.on("/rainPause", handleRainPause);
-  server.on("/configPoolCycle", handleConfigPoolCycle);
-  server.on("/configIrrigationCycle", handleConfigIrrigationCycle);
+  server.on("/startPoolPump", HTTP_PUT, handleStartPoolPump);
+  server.on("/stopPoolPump", HTTP_PUT, handleStopPoolPump);
+  server.on("/startIrrigationPump", HTTP_PUT, handleStartIrrigationPump);
+  server.on("/stopIrrigationPump", HTTP_PUT, handleStopIrrigationPump);
+  server.on("/rainPause", HTTP_PUT, handleRainPause);
+  server.on("/configPoolCycle", HTTP_PUT, handleConfigPoolCycle);
+  server.on("/configIrrigationCycle", HTTP_PUT, handleConfigIrrigationCycle);
 }
 /*------------------------------------------------------------------------------------*/
 /* Helpers                                                                            */   
@@ -500,6 +504,8 @@ void setup() {
   // Initialize switches
   pinMode(POOL_SWITCH, INPUT);
   pinMode(IRRIGATION_SWITCH, INPUT);
+  currentPoolSwitchStatus = digitalRead(POOL_SWITCH);
+  currentIrrigationSwitchStatus = digitalRead(IRRIGATION_SWITCH);
   
   // Start http server
   startServer();
@@ -515,18 +521,23 @@ void loop() {
   // Check switches
 
   int poolSwitch = digitalRead(POOL_SWITCH);
-  if (poolSwitch) {
-    poolPump.start(true);
-  } else if (!poolSwitch && poolPump.isRunning() && poolPump.isManual()) {
-    poolPump.stop(true);
-    midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+  if (poolSwitch != currentPoolSwitchStatus) {
+    currentPoolSwitchStatus = poolSwitch;
+    if (poolPump.isRunning() && poolPump.isManual()) {
+      poolPump.stop(true);
+      midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+    } else if(!poolPump.isRunning()) {
+      poolPump.start(true);
+    }
   }
-
   int irrigationSwitch = digitalRead(IRRIGATION_SWITCH);
-  if (irrigationSwitch) {
-    irrigationPump.start(true);
-  } else if (!irrigationSwitch && irrigationPump.isRunning() && irrigationPump.isManual()) {
-    irrigationPump.stop(true);
-    midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+  if (irrigationSwitch != currentIrrigationSwitchStatus) {
+    currentIrrigationSwitchStatus = irrigationSwitch;
+    if (irrigationPump.isRunning() && irrigationPump.isManual()) {
+      irrigationPump.stop(true);
+      midnightReschedulingTicker.once(minutesTillMidnight(), reschedule);
+    } else if(!irrigationPump.isRunning()) {
+      irrigationPump.start(true);
+    }
   }
 }
