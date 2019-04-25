@@ -1,5 +1,7 @@
 #include <WiFiManager.h>
 #include <Ticker.h>
+#include <LongTicker.h>
+#include <StatusLED.h>
 #include <ESP8266WebServer.h>
 #include <bitset>
 #include <time.h>
@@ -78,7 +80,8 @@ class PoolParameters {
     }
 
     char *getStartPoolPumpTimeStr() {
-      strftime(timebuffer, 20, "%T", &poolParametersData.startPoolPumpTime);
+      strftime(
+timebuffer, 20, "%T", &poolParametersData.startPoolPumpTime);
       return timebuffer;
     }
 
@@ -206,39 +209,6 @@ class Pump {
 };
 
 /*------------------------------------------------------------------------------------*/
-/* Status LED Class                                                                   */   
-/*------------------------------------------------------------------------------------*/
-const float INIT = 0.5;
-const float NO_WIFI = 2;
-const float STABLE = 0;
-class StatusLED {
-  public:
-    enum Status {
-      unknown,
-      initializing,
-      stable,
-      no_wifi
-    };
-  
-    StatusLED(int gpioIndex, Status status=initializing)
-      :gpio(gpioIndex),
-      state(unknown) {
-        pinMode(gpioIndex, OUTPUT);
-        setStatus(status);
-      };
-    
-    void setStatus(Status status);
-    int getGpio() {
-      return gpio;
-    };
-  private:
-    Ticker ticker;
-    Status state;
-    int gpio;
-};
-
-
-/*------------------------------------------------------------------------------------*/
 /* Global Variables                                                                   */   
 /*------------------------------------------------------------------------------------*/
 PoolParameters poolParams;
@@ -249,127 +219,6 @@ Pump irrigationPump("Irrigation", IRRIGATION_PUMP_GPIO);
 int irrigationZone = 1;
 struct tm *startTime;
 char timebuffer[100];
-
-/*------------------------------------------------------------------------------------*/
-/* My Ticker for longer timers                                                        */   
-/*------------------------------------------------------------------------------------*/
-class LongTicker 
-{
-public:
-  static const int MAX_MINUTES_TICKER = 60;
-  // Keep ticker and cb public
-  Ticker ticker;
-  Ticker::callback_t cb;
-
-public:
-  LongTicker();
-  LongTicker(std::string tickerName);
-  ~LongTicker();
-    
-  void once(int minutes, Ticker::callback_t cb);
-  void showStatus(const char *functionName);
-  bool isRunning(void) {
-    return ticker.active();
-  }
-  void detach() {
-    ticker.detach();
-  }
-  void setTotalMinutesLeft(int minutes) {
-    totalMinutesLeft = minutes;
-  }
-
-  int getTotalMinutesLeft(void) {
-    return totalMinutesLeft;
-  }
-
-private:
-  std::string tickerName;
-  int totalMinutesLeft;
-};
-
-void repeat(LongTicker *myTicker) {
-  myTicker->showStatus("Begin repeat");
-  int tickerMinutes = std::min(myTicker->getTotalMinutesLeft(), LongTicker::MAX_MINUTES_TICKER);
-  if (tickerMinutes <= 0) {
-    myTicker->cb();
-  } else {
-    if (myTicker->getTotalMinutesLeft() > LongTicker::MAX_MINUTES_TICKER) {
-      myTicker->setTotalMinutesLeft(myTicker->getTotalMinutesLeft() - tickerMinutes);
-      myTicker->ticker.once(LongTicker::MAX_MINUTES_TICKER * 60, repeat, myTicker);
-      myTicker->showStatus("End repeat");
-      return;
-    }
-    myTicker->ticker.once(myTicker->getTotalMinutesLeft() * 60, myTicker->cb);
-    myTicker->setTotalMinutesLeft(0);
-  }
-  myTicker->showStatus("End repeat");
-}
-LongTicker::LongTicker()
-: totalMinutesLeft(0) {}
-
-LongTicker::LongTicker(std::string tickName)
-: totalMinutesLeft(0)
-, tickerName(tickName) {}
-
-LongTicker::~LongTicker() {
-  ticker.detach();
-}
-
-void LongTicker::showStatus(const char *functionName) {
-  struct tm *now = getCurrentTime();
-  Serial.print("[TICKER] ");Serial.print(getTime(now)); Serial.print("("); Serial.print(functionName); Serial.print(") ");
-  Serial.print(": Name: "); Serial.print(this->tickerName.c_str()); Serial.print(", minutesLeft: "); Serial.println(this->totalMinutesLeft);  
-}
-
-void LongTicker::once(int minutes, Ticker::callback_t cb) {
-  if (ticker.active()) {
-    debug("This ticker is already running. It will be detached");
-    ticker.detach();
-  }
-  this->totalMinutesLeft = minutes;
-  this->showStatus("Begin once");
-  if (minutes > MAX_MINUTES_TICKER) {
-    this->totalMinutesLeft = minutes - MAX_MINUTES_TICKER;
-    this->cb = cb;
-    ticker.once(MAX_MINUTES_TICKER * 60, repeat, this);
-    this->showStatus("End once");
-    return;
-  }
-  ticker.once(minutes * 60, cb);
-  this->totalMinutesLeft = 0;
-  this->showStatus("End once");
-}
-
-void statusCb(StatusLED *led) {
-  int state = digitalRead(led->getGpio());
-  digitalWrite(led->getGpio(), !state);
-}
-
-void StatusLED::setStatus(Status status) {
-  debug("Change status");
-  if (status != state) {
-    ticker.detach();
-    float period = 0;
-    state = status;
-    switch(state) {
-      case initializing:
-        period = INIT;
-        break;
-      case stable:
-        period = STABLE;
-        break;
-      case no_wifi:
-        period = NO_WIFI;
-        break;
-     }
-     if(period == 0) {
-       digitalWrite(gpio, HIGH);
-     } else {
-       ticker.attach(period, statusCb, this);
-     }
-  }
-}
-
 
 /*------------------------------------------------------------------------------------*/
 /* Intervals                                                                          */   
