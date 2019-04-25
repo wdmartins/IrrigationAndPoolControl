@@ -207,7 +207,12 @@ class Pump {
     bool active;
     bool manualMode;
 };
-
+/*------------------------------------------------------------------------------------*/
+/* Global Functions                                                                   */   
+/*------------------------------------------------------------------------------------*/
+void restart() {
+  ESP.restart();
+}
 /*------------------------------------------------------------------------------------*/
 /* Global Variables                                                                   */   
 /*------------------------------------------------------------------------------------*/
@@ -224,6 +229,7 @@ char timebuffer[100];
 /* Intervals                                                                          */   
 /*------------------------------------------------------------------------------------*/
 Ticker ledTicker; // Builtin led ticker
+Ticker restartTicker; // Pause before restart
 LongTicker poolPumpTicker("Pool Pump");
 LongTicker irrigationPumpTicker("Irrigation");
 LongTicker midnightReschedulingTicker("Rescheduling");
@@ -301,6 +307,12 @@ void handleConfigIrrigationCycle() {
     server.send(501, "text/plain", "Config irrigation cycle has not been implemented yet");
 }
 
+void handleRestart() {
+    Serial.println("Request to restart system");
+    server.send(200, "text/plain", "Restarting...");
+    restartTicker.attach(2, restart);
+}
+
 void startServer () {
   server.begin();
   server.onNotFound(handleNotFound);
@@ -312,6 +324,7 @@ void startServer () {
   server.on("/rainPause", HTTP_PUT, handleRainPause);
   server.on("/configPoolCycle", HTTP_PUT, handleConfigPoolCycle);
   server.on("/configIrrigationCycle", HTTP_PUT, handleConfigIrrigationCycle);
+  server.on("/restartESP8266", HTTP_PUT, handleRestart);
 }
 /*------------------------------------------------------------------------------------*/
 /* Helpers                                                                            */   
