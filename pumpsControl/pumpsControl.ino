@@ -248,39 +248,57 @@ void handleGetStatus() {
 
 void handleStartPoolPump() {
     Serial.println("Request to start pool pump");
+    if (poolPump.isRunning()) {
+      server.send(200, "text/plain", "Pool pump is already running");
+      return;
+    }
     poolPump.start(true);
     server.send(200, "text/plain", "Pool pump started");
 }
 
 void handleStopPoolPump() {
     Serial.println("Request to stop pool pump");
+    if (!poolPump.isRunning()) {
+      server.send(200, "text/plain", "Pool pump was not running");
+      return;
+    }
     poolPump.stop(true);
     server.send(200, "text/plain", "Pool pump stop");
 }
 
 void handleStartIrrigationPump() {
     Serial.println("Request to start irrigation pump");
-    server.send(200);
+    if (irrigationPump.isRunning()) {
+      server.send(200, "text/plain", "Irrigation pump is already running");
+      return;
+    }
+    irrigationPump.start(true);
+    server.send(200, "text/plain", "Irrigation pump started");
 }
 
 void handleStopIrrigationPump() {
-    Serial.println("Request to start irrigation pump");
-    server.send(200);
+    Serial.println("Request to stop irrigation pump");
+    if (!irrigationPump.isRunning()) {
+      server.send(200, "text/plain", "Irrigation pump was not running");
+      return;
+    }
+    irrigationPump.stop(true);
+    server.send(200, "text/plain", "Irrigation pump stop");
 }
 
 void handleRainPause() {
     Serial.println("Request to pause irrigation due to rain");
-    server.send(200);
+    server.send(501, "text/plain", "Rain pause has not been implemented yet");
 }
 
 void handleConfigPoolCycle() {
     Serial.println("Request to config pool cycle");
-    server.send(200);
+    server.send(501, "text/plain", "Config pool cycle has not been implemented yet");
 }
 
 void handleConfigIrrigationCycle() {
     Serial.println("Request to config irrigation cycle");
-    server.send(200);
+    server.send(501, "text/plain", "Config irrigation cycle has not been implemented yet");
 }
 
 void startServer () {
